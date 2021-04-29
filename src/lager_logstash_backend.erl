@@ -16,15 +16,20 @@
          get_app_version/0
 ]).
 
--record(state, {socket :: pid(),
-                lager_level_type :: 'mask' | 'number' | 'unknown',
-                level :: atom(),
-                logstash_host :: string(),
-                logstash_port :: number(),
-                logstash_address :: inet:ip_address(),
-                node_role :: string(),
-                node_version :: string(),
-                metadata :: list()
+-define(RECONNECT_TIME, 2000).
+
+-record(state, {
+  protocol :: udp | tcp,
+  socket :: pid(),
+  connected = false :: true | false,
+  lager_level_type :: 'mask' | 'number' | 'unknown',
+  level :: atom(),
+  logstash_host :: string(),
+  logstash_port :: number(),
+  logstash_address :: inet:ip_address(),
+  node_role :: string(),
+  node_version :: string(),
+  metadata :: list()
 }).
 
 init(Params) ->
@@ -45,6 +50,7 @@ init(Params) ->
   Level = lager_util:level_to_num(proplists:get_value(level, Params, debug)),
   Host = proplists:get_value(logstash_host, Params, "localhost"),
   Port = proplists:get_value(logstash_port, Params, 9125),
+  Protocol = proplists:get_value(protocol, Params, udp),
   Node_Role = proplists:get_value(node_role, Params, "no_role"),
   Node_Version = proplists:get_value(node_version, Params, "no_version"),
 
@@ -57,16 +63,16 @@ init(Params) ->
       {module, [{encoding, atom}]}
      ],
 
- {Socket, Address} =
+  Address =
    case inet:getaddr(Host, inet) of
-     {ok, Addr} ->
-       {ok, Sock} = gen_udp:open(0, [list]),
-       {Sock, Addr};
-     {error, _Err} ->
-       {undefined, undefined}
+     {ok, Addr} -> Addr;
+     {error, _Err} -> Host
    end,
 
-  {ok, #state{socket = Socket,
+  erlang:send_after(0, self(), connect),
+
+  {ok, #state{
+              protocol = Protocol,
               lager_level_type = Lager_Level_Type,
               level = Level,
               logstash_host = Host,
@@ -102,10 +108,7 @@ handle_event({log, {lager_msg, _, Metadata, Severity, {Date, Time}, Message}}, #
                                                   Time,
                                                   Message,
                                                   metadata(Metadata, Config_Meta)),
-      gen_udp:send(State#state.socket,
-                   State#state.logstash_address,
-                   State#state.logstash_port,
-                   Encoded_Message);
+      send(Encoded_Message, State);
     _ ->
       ok
   end,
@@ -114,10 +117,39 @@ handle_event({log, {lager_msg, _, Metadata, Severity, {Date, Time}, Message}}, #
 handle_event(_Event, State) ->
   {ok, State}.
 
+handle_info(connect, State = #state{protocol = udp, logstash_address = Peer, logstash_port = Port}) ->
+  Socket =
+  case gen_udp:open(0, [binary]) of
+    {ok, Sock} -> Sock;
+    {error, _What} ->
+%%      lager:error("[~p] Error opening udp socket for logstash: ~p",[?MODULE, What]),
+      reconnect(),
+      undefined
+  end,
+  {ok, State#state{socket = Socket}};
+handle_info(connect, State = #state{protocol = tcp, logstash_address = Peer, logstash_port = Port}) ->
+  Socket =
+  case gen_tcp:connect(Peer, Port, [{active, false}, {keepalive, true}, {mode, binary}, {reuseaddr, true}]) of
+    {ok, Sock} -> Sock;
+    {error, _What} ->
+%%      lager:error("Error connecting tcp to logstash host: ~p on port: ~p :: ~p",[Peer, Port, What]),
+      reconnect(),
+      undefined
+  end,
+  {ok, State#state{socket = Socket}};
+handle_info({tcp_closed, Socket}, S=#state{socket = Socket}) ->
+  reconnect(),
+  {ok, S#state{socket = undefined}};
+handle_info({tcp_error, Socket, _}, S=#state{socket = Socket}) ->
+  reconnect(),
+  {ok, S#state{socket = undefined}};
 handle_info(_Info, State) ->
   {ok, State}.
 
-terminate(_Reason, #state{socket=S}=_State) ->
+terminate(_Reason, #state{protocol = tcp, socket=S}=_State) ->
+  gen_tcp:close(S),
+  ok;
+terminate(_Reason, #state{protocol = udp, socket=S}=_State) ->
   gen_udp:close(S),
   ok;
 terminate(_Reason, _State) ->
@@ -127,6 +159,14 @@ code_change(_OldVsn, State, _Extra) ->
   %% TODO version number should be read here, or else we don't support upgrades
   Vsn = get_app_version(),
   {ok, State#state{node_version=Vsn}}.
+
+reconnect() ->
+  erlang:send_after(?RECONNECT_TIME, self(),  connect).
+
+send(Message, #state{protocol = upd, socket = Sock, logstash_address = Peer, logstash_port = Port}) ->
+  gen_udp:send(Sock, Peer, Port, Message);
+send(Message, #state{protocol = tcp, socket = Sock}) ->
+  gen_tcp:send(Sock, Message).
 
 encode_json_event(_, Node, Node_Role, Node_Version, Severity, Date, Time, Message, Metadata) ->
   TimeWithoutUtc = re:replace(Time, "(\\s+)UTC", "", [{return, list}]),
