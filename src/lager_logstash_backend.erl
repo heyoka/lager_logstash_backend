@@ -117,7 +117,7 @@ handle_event({log, {lager_msg, _, Metadata, Severity, {Date, Time}, Message}}, #
 handle_event(_Event, State) ->
   {ok, State}.
 
-handle_info(connect, State = #state{protocol = udp, logstash_address = Peer, logstash_port = Port}) ->
+handle_info(connect, State = #state{protocol = udp}) ->
   Socket =
   case gen_udp:open(0, [binary]) of
     {ok, Sock} -> Sock;
@@ -163,10 +163,14 @@ code_change(_OldVsn, State, _Extra) ->
 reconnect() ->
   erlang:send_after(?RECONNECT_TIME, self(),  connect).
 
-send(Message, #state{protocol = upd, socket = Sock, logstash_address = Peer, logstash_port = Port}) ->
+send(Message, #state{protocol = udp, socket = Sock, logstash_address = Peer, logstash_port = Port}) ->
+  io:format("write udp: ~p",[Message]),
   gen_udp:send(Sock, Peer, Port, Message);
 send(Message, #state{protocol = tcp, socket = Sock}) ->
-  gen_tcp:send(Sock, Message).
+%%  gen_tcp:send(Sock, <<Message/binary, "\n">>);
+  gen_tcp:send(Sock, Message);
+send(P1, P2) ->
+  io:format("Msg: ~p, State: ~p",[P1, P2]).
 
 encode_json_event(_, Node, Node_Role, Node_Version, Severity, Date, Time, Message, Metadata) ->
   TimeWithoutUtc = re:replace(Time, "(\\s+)UTC", "", [{return, list}]),
