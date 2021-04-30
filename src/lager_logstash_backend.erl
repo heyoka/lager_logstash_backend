@@ -164,7 +164,6 @@ reconnect() ->
   erlang:send_after(?RECONNECT_TIME, self(),  connect).
 
 send(Message, #state{protocol = udp, socket = Sock, logstash_address = Peer, logstash_port = Port}) ->
-  io:format("write udp: ~p",[Message]),
   gen_udp:send(Sock, Peer, Port, Message);
 send(Message, #state{protocol = tcp, socket = Sock}) ->
 %%  gen_tcp:send(Sock, <<Message/binary, "\n">>);
