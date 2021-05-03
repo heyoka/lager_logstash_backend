@@ -70,7 +70,6 @@ init(Params) ->
    end,
 
   erlang:send_after(0, self(), connect),
-
   {ok, #state{
               protocol = Protocol,
               lager_level_type = Lager_Level_Type,
@@ -122,7 +121,6 @@ handle_info(connect, State = #state{protocol = udp}) ->
   case gen_udp:open(0, [binary]) of
     {ok, Sock} -> Sock;
     {error, _What} ->
-%%      lager:error("[~p] Error opening udp socket for logstash: ~p",[?MODULE, What]),
       reconnect(),
       undefined
   end,
@@ -132,7 +130,6 @@ handle_info(connect, State = #state{protocol = tcp, logstash_address = Peer, log
   case gen_tcp:connect(Peer, Port, [{active, false}, {keepalive, true}, {mode, binary}, {reuseaddr, true}]) of
     {ok, Sock} -> Sock;
     {error, _What} ->
-%%      lager:error("Error connecting tcp to logstash host: ~p on port: ~p :: ~p",[Peer, Port, What]),
       reconnect(),
       undefined
   end,
@@ -166,8 +163,7 @@ reconnect() ->
 send(Message, #state{protocol = udp, socket = Sock, logstash_address = Peer, logstash_port = Port}) ->
   gen_udp:send(Sock, Peer, Port, Message);
 send(Message, #state{protocol = tcp, socket = Sock}) ->
-%%  gen_tcp:send(Sock, <<Message/binary, "\n">>);
-  gen_tcp:send(Sock, Message);
+  gen_tcp:send(Sock, <<Message/binary, "\n">>);
 send(P1, P2) ->
   io:format("Msg: ~p, State: ~p",[P1, P2]).
 
