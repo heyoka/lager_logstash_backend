@@ -163,7 +163,7 @@ reconnect() ->
 send(Message, #state{protocol = udp, socket = Sock, logstash_address = Peer, logstash_port = Port}) ->
   gen_udp:send(Sock, Peer, Port, Message);
 send(Message, #state{protocol = tcp, socket = Sock}) ->
-  gen_tcp:send(Sock, <<Message/binary, "\n">>);
+  gen_tcp:send(Sock, [Message, "\n"]);
 send(P1, P2) ->
   io:format("Msg: ~p, State: ~p",[P1, P2]).
 
