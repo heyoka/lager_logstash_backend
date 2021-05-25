@@ -58,7 +58,7 @@ init(Params) ->
      [
       {pid, [{encoding, process}]},
       {function, [{encoding, atom}]},
-      {line, [{encoding, integer}]},
+      {line, [{encoding, line}]},
       {file, [{encoding, string}]},
       {module, [{encoding, atom}]}
      ],
@@ -218,5 +218,7 @@ encode_value(Val, process) when is_pid(Val) -> list_to_binary(pid_to_list(Val));
 encode_value(Val, process) when is_list(Val) -> list_to_binary(Val);
 encode_value(Val, process) when is_atom(Val) -> list_to_binary(atom_to_list(Val));
 encode_value(Val, integer) -> list_to_binary(integer_to_list(Val));
+encode_value(Val, line) when is_integer(Val) -> encode_value(Val, integer);
+encode_value(Line, line) -> list_to_binary(lists:flatten(io_lib:format("~p",[Line])));
 encode_value(Val, atom) -> list_to_binary(atom_to_list(Val));
 encode_value(_Val, undefined) -> throw(encoding_error).
