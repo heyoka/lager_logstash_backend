@@ -96,6 +96,7 @@ handle_event({log, {lager_msg, Q, Metadata, Severity, {Date, Time}, _, Message}}
   handle_event({log, {lager_msg, Q, Metadata, Severity, {Date, Time}, Message}}, State);
 
 handle_event({log, {lager_msg, _, Metadata, Severity, {Date, Time}, Message}}, #state{level=L, metadata=Config_Meta}=State) ->
+  NewState =
   case lager_util:level_to_num(Severity) =< L of
     true ->
       Encoded_Message = encode_json_event(State#state.lager_level_type,
@@ -109,9 +110,9 @@ handle_event({log, {lager_msg, _, Metadata, Severity, {Date, Time}, Message}}, #
                                                   metadata(Metadata, Config_Meta)),
       send(Encoded_Message, State);
     _ ->
-      ok
+      State
   end,
-  {ok, State};
+  {ok, NewState};
 
 handle_event(_Event, State) ->
   {ok, State}.
@@ -160,12 +161,19 @@ code_change(_OldVsn, State, _Extra) ->
 reconnect() ->
   erlang:send_after(?RECONNECT_TIME, self(),  connect).
 
-send(Message, #state{protocol = udp, socket = Sock, logstash_address = Peer, logstash_port = Port}) ->
-  gen_udp:send(Sock, Peer, Port, Message);
-send(Message, #state{protocol = tcp, socket = Sock}) ->
-  gen_tcp:send(Sock, [Message, "\n"]);
+send(Message, State = #state{protocol = udp, socket = Sock, logstash_address = Peer, logstash_port = Port}) ->
+  gen_udp:send(Sock, Peer, Port, Message),
+  State;
+send(Message, State = #state{protocol = tcp, socket = Sock}) ->
+  case gen_tcp:send(Sock, [Message, "\n"]) of
+    ok -> State;
+    {error, _Reason} ->
+      catch gen_tcp:close(Sock),
+      reconnect(),
+      State#state{socket = undefined}
+  end;
 send(P1, P2) ->
-  io:format("Msg: ~p, State: ~p",[P1, P2]).
+  io:format("Msg: ~p, State: ~p",[P1, P2]), P2.
 
 encode_json_event(_, Node, Node_Role, Node_Version, Severity, Date, Time, Message, Metadata) ->
   TimeWithoutUtc = re:replace(Time, "(\\s+)UTC", "", [{return, list}]),
