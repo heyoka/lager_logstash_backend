@@ -3,6 +3,7 @@
 %% Started from the lager logstash backend
 -author('marc.e.campbell@gmail.com').
 -author('mhald@mac.com').
+-author(heyoka).
 
 -behaviour(gen_event).
 
@@ -33,6 +34,7 @@
 }).
 
 init(Params) ->
+  io:format("~p params: ~p~n",[?MODULE, Params]),
   %% we need the lager version, but we aren't loaded, so... let's try real hard
   %% this is obviously too fragile
   {ok, Properties}     = application:get_all_key(),
