@@ -62,7 +62,8 @@ init(Params) ->
       {function, [{encoding, atom}]},
       {line, [{encoding, line}]},
       {file, [{encoding, string}]},
-      {module, [{encoding, atom}]}
+      {module, [{encoding, atom}]},
+       {device, [{encoding, binary}]}
      ],
 
   Address =
