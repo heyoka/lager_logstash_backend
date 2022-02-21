@@ -34,7 +34,7 @@
 }).
 
 init(Params) ->
-  io:format("~p params: ~p~n",[?MODULE, Params]),
+%%  io:format("~p params: ~p~n",[?MODULE, Params]),
   %% we need the lager version, but we aren't loaded, so... let's try real hard
   %% this is obviously too fragile
   {ok, Properties}     = application:get_all_key(),
@@ -62,8 +62,9 @@ init(Params) ->
       {function, [{encoding, atom}]},
       {line, [{encoding, line}]},
       {file, [{encoding, string}]},
-      {module, [{encoding, atom}]},
-       {device, [{encoding, binary}]}
+      {module, [{encoding, atom}]}
+%%       ,
+%%       {device, [{encoding, binary}]}
      ],
 
   Address =
@@ -99,6 +100,8 @@ handle_event({log, {lager_msg, Q, Metadata, Severity, {Date, Time}, _, Message}}
   handle_event({log, {lager_msg, Q, Metadata, Severity, {Date, Time}, Message}}, State);
 
 handle_event({log, {lager_msg, _, Metadata, Severity, {Date, Time}, Message}}, #state{level=L, metadata=Config_Meta}=State) ->
+  MData =  metadata(Metadata, Config_Meta),
+%%  io:format("meta data: ~p",[MData]),
   NewState =
   case lager_util:level_to_num(Severity) =< L of
     true ->
@@ -110,7 +113,7 @@ handle_event({log, {lager_msg, _, Metadata, Severity, {Date, Time}, Message}}, #
                                                   Date,
                                                   Time,
                                                   Message,
-                                                  metadata(Metadata, Config_Meta)),
+                                                 MData),
       send(Encoded_Message, State);
     _ ->
       State
@@ -179,6 +182,7 @@ send(P1, P2) ->
   io:format("Msg: ~p, State: ~p",[P1, P2]), P2.
 
 encode_json_event(_, Node, Node_Role, Node_Version, Severity, Date, Time, Message, Metadata) ->
+%%  io:format("~nMeta: ~p~n",[Metadata]),
   TimeWithoutUtc = re:replace(Time, "(\\s+)UTC", "", [{return, list}]),
   DateTime = io_lib:format("~sT~sZ", [Date,TimeWithoutUtc]),
   jiffy:encode({[
@@ -218,12 +222,14 @@ logtime() ->
 
 metadata(Metadata, Config_Meta) ->
     Expanded = [{Name, Properties, proplists:get_value(Name, Metadata)} || {Name, Properties} <- Config_Meta],
+%%  io:format("~nExpanded Meta: ~p~n",[Expanded]),
     [{list_to_binary(atom_to_list(Name)), encode_value(Value, proplists:get_value(encoding, Properties))} || {Name, Properties, Value} <- Expanded, Value =/= undefined].
 
 encode_value(Val, string) when is_list(Val) -> list_to_binary(Val);
 encode_value(Val, string) when is_binary(Val) -> Val;
 encode_value(Val, string) when is_atom(Val) -> list_to_binary(atom_to_list(Val));
 encode_value(Val, binary) when is_list(Val) -> list_to_binary(Val);
+encode_value(Val, string) when is_function(Val) -> Val();
 encode_value(Val, binary) -> Val;
 encode_value(Val, process) when is_pid(Val) -> list_to_binary(pid_to_list(Val));
 encode_value(Val, process) when is_list(Val) -> list_to_binary(Val);
