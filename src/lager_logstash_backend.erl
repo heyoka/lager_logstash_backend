@@ -101,7 +101,6 @@ handle_event({log, {lager_msg, Q, Metadata, Severity, {Date, Time}, _, Message}}
 
 handle_event({log, {lager_msg, _, Metadata, Severity, {Date, Time}, Message}}, #state{level=L, metadata=Config_Meta}=State) ->
   MData =  metadata(Metadata, Config_Meta),
-%%  io:format("meta data: ~p",[MData]),
   NewState =
   case lager_util:level_to_num(Severity) =< L of
     true ->
@@ -220,10 +219,20 @@ logtime() ->
     lists:flatten(io_lib:format("~4.10.0B-~2.10.0B-~2.10.0BT~2.10.0B:~2.10.0B:~2.10.0B.~.10.0BZ",
         [Year, Month, Day, Hour, Minute, Second, 0])).
 
-metadata(Metadata, Config_Meta) ->
+metadata(Metadata0, Config_Meta) ->
+  Metadata =
+  case proplists:get_value(device, Metadata0, undefined) of
+    undefined ->
+                case erlang:function_exported(faxe_util, device_name, 0) of
+                   true ->
+                     Metadata0++[{device, fun faxe_util:device_name/0}];
+                   false -> Metadata0
+                 end;
+    _ -> Metadata0
+  end,
     Expanded = [{Name, Properties, proplists:get_value(Name, Metadata)} || {Name, Properties} <- Config_Meta],
-%%  io:format("~nExpanded Meta: ~p~n",[Expanded]),
-    [{list_to_binary(atom_to_list(Name)), encode_value(Value, proplists:get_value(encoding, Properties))} || {Name, Properties, Value} <- Expanded, Value =/= undefined].
+    [{list_to_binary(atom_to_list(Name)), encode_value(Value, proplists:get_value(encoding, Properties))}
+      || {Name, Properties, Value} <- Expanded, Value =/= undefined].
 
 encode_value(Val, string) when is_list(Val) -> list_to_binary(Val);
 encode_value(Val, string) when is_binary(Val) -> Val;
