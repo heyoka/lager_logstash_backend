@@ -18,6 +18,9 @@
 ]).
 
 -define(RECONNECT_TIME, 2000).
+-define(TCP_SOCKET_OPTS,
+  [{active, true}, {keepalive, true}, {mode, binary}, {reuseaddr, true}]
+).
 
 -record(state, {
   protocol :: udp | tcp,
@@ -28,17 +31,19 @@
   logstash_host :: string(),
   logstash_port :: number(),
   logstash_address :: inet:ip_address(),
+  tls_enable :: true|false,
+  ssl_opts :: list(),
   node_role :: string(),
   node_version :: string(),
   metadata :: list()
 }).
 
 init(Params) ->
-%%  io:format("~p params: ~p~n",[?MODULE, Params]),
   %% we need the lager version, but we aren't loaded, so... let's try real hard
   %% this is obviously too fragile
   {ok, Properties}     = application:get_all_key(),
   {vsn, Lager_Version} = proplists:lookup(vsn, Properties),
+
   Lager_Level_Type =
     case string:to_float(Lager_Version) of
       {V1, _} when V1 < 2.0 ->
@@ -55,6 +60,8 @@ init(Params) ->
   Protocol = proplists:get_value(protocol, Params, udp),
   Node_Role = proplists:get_value(node_role, Params, "no_role"),
   Node_Version = proplists:get_value(node_version, Params, "no_version"),
+  TLSEnable = proplists:get_value(ssl, Params, false),
+  SslOpts = proplists:get_value(ssl_opts, Params, []),
 
   Metadata = proplists:get_value(metadata, Params, []) ++
      [
@@ -81,6 +88,8 @@ init(Params) ->
               logstash_host = Host,
               logstash_port = Port,
               logstash_address = Address,
+              tls_enable = TLSEnable,
+              ssl_opts = SslOpts,
               node_role = Node_Role,
               node_version = Node_Version,
               metadata = Metadata}}.
@@ -131,13 +140,27 @@ handle_info(connect, State = #state{protocol = udp}) ->
       undefined
   end,
   {ok, State#state{socket = Socket}};
-handle_info(connect, State = #state{protocol = tcp, logstash_address = Peer, logstash_port = Port}) ->
+handle_info(connect, State = #state{protocol = tcp, logstash_address = Peer, logstash_port = Port,
+  tls_enable = TLS, ssl_opts = SslOpts}) ->
   Socket =
-  case gen_tcp:connect(Peer, Port, [{active, false}, {keepalive, true}, {mode, binary}, {reuseaddr, true}]) of
-    {ok, Sock} -> Sock;
-    {error, _What} ->
-      reconnect(),
-      undefined
+  case TLS of
+    true ->
+      application:ensure_all_started(ssl),
+      R = ssl:connect(Peer, Port, SslOpts++?TCP_SOCKET_OPTS, infinity),
+      case R of
+        {ok, SocketSsl} -> SocketSsl;
+        {error, _What} ->
+          io:format("~n~p connect with ssl gives ERROR: ~p~n",[?MODULE, _What]),
+          reconnect(),
+          undefined
+      end;
+    false ->
+      case gen_tcp:connect(Peer, Port, ?TCP_SOCKET_OPTS) of
+        {ok, Sock} -> Sock;
+        {error, _What} ->
+          reconnect(),
+          undefined
+      end
   end,
   {ok, State#state{socket = Socket}};
 handle_info({tcp_closed, Socket}, S=#state{socket = Socket}) ->
@@ -146,7 +169,14 @@ handle_info({tcp_closed, Socket}, S=#state{socket = Socket}) ->
 handle_info({tcp_error, Socket, _}, S=#state{socket = Socket}) ->
   reconnect(),
   {ok, S#state{socket = undefined}};
+handle_info({ssl_closed, Socket}, S=#state{socket = Socket}) ->
+  reconnect(),
+  {ok, S#state{socket = undefined}};
+handle_info({ssl_error, Socket, _}, S=#state{socket = Socket}) ->
+  reconnect(),
+  {ok, S#state{socket = undefined}};
 handle_info(_Info, State) ->
+%%  io:format("~n~p got unexpected INFO: ~p~n",[?MODULE, _Info]),
   {ok, State}.
 
 terminate(_Reason, #state{protocol = tcp, socket=S}=_State) ->
@@ -169,6 +199,14 @@ reconnect() ->
 send(Message, State = #state{protocol = udp, socket = Sock, logstash_address = Peer, logstash_port = Port}) ->
   gen_udp:send(Sock, Peer, Port, Message),
   State;
+send(Message, State = #state{protocol = tcp, socket = Sock, tls_enable = true}) ->
+  case ssl:send(Sock, [Message, "\n"]) of
+    ok -> State;
+    {error, _Reason} ->
+      catch ssl:close(Sock),
+      reconnect(),
+      State#state{socket = undefined}
+  end;
 send(Message, State = #state{protocol = tcp, socket = Sock}) ->
   case gen_tcp:send(Sock, [Message, "\n"]) of
     ok -> State;

@@ -5,6 +5,11 @@
   {applications, [
     kernel,
     stdlib,
+    asn1,
+    crypto,
+    public_key,
+    ssl,
+    jiffy,
     lager
   ]},
   {env, []}
