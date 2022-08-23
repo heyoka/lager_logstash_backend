@@ -172,11 +172,12 @@ handle_info({tcp_error, Socket, _}, S=#state{socket = Socket}) ->
 handle_info({ssl_closed, Socket}, S=#state{socket = Socket}) ->
   reconnect(),
   {ok, S#state{socket = undefined}};
-handle_info({ssl_error, Socket, _}, S=#state{socket = Socket}) ->
+handle_info({ssl_error, Socket, _E}, S=#state{socket = Socket}) ->
+  io:format("ssl socket error ~p~n",[_E]),
   reconnect(),
   {ok, S#state{socket = undefined}};
 handle_info(_Info, State) ->
-%%  io:format("~n~p got unexpected INFO: ~p~n",[?MODULE, _Info]),
+  io:format("~n~p got unexpected INFO: ~p~n",[?MODULE, _Info]),
   {ok, State}.
 
 terminate(_Reason, #state{protocol = tcp, socket=S}=_State) ->
@@ -203,6 +204,7 @@ send(Message, State = #state{protocol = tcp, socket = Sock, tls_enable = true}) 
   case ssl:send(Sock, [Message, "\n"]) of
     ok -> State;
     {error, _Reason} ->
+      io:format("~n~p send with ssl gives ERROR: ~p~n",[?MODULE, _Reason]),
       catch ssl:close(Sock),
       reconnect(),
       State#state{socket = undefined}
