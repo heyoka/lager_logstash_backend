@@ -177,7 +177,7 @@ handle_info({ssl_error, Socket, _E}, S=#state{socket = Socket}) ->
   reconnect(),
   {ok, S#state{socket = undefined}};
 handle_info(_Info, State) ->
-  io:format("~n~p got unexpected INFO: ~p~n",[?MODULE, _Info]),
+%%  io:format("~n~p got unexpected INFO: ~p~n",[?MODULE, _Info]),
   {ok, State}.
 
 terminate(_Reason, #state{protocol = tcp, socket=S}=_State) ->
